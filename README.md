@@ -2,13 +2,15 @@
 
 一键获取 PikPak refresh_token。
 
-## 一键使用
+## 一键使用（推荐）
 
 ```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/WangWaichit/pikpak-refresh-token/main/refresh.sh)"
+curl -fsSL https://raw.githubusercontent.com/WangWaichit/pikpak-refresh-token/main/refresh.sh -o /tmp/pikpak.sh && bash /tmp/pikpak.sh
 ```
 
 按提示输入 PikPak 邮箱和密码，直接输出 refresh_token。
+
+> 不要用 `bash -c "$(curl ...)"` 这种写法，会导致脚本读不到键盘输入。
 
 ## 本地使用
 
