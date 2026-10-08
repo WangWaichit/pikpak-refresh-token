@@ -8,12 +8,6 @@ import urllib.request
 import urllib.parse
 import urllib.error
 
-# 从 /dev/tty 读取输入，避免管道 stdin 被占用导致 EOFError
-def ask(prompt):
-    with open("/dev/tty", "r") as tty:
-        print(prompt, end="", flush=True)
-        return tty.readline().strip()
-
 PK_CLIENT_ID = "YNxT9w7GMdWvEOKa"
 PK_CLIENT_SECRET = "dbw2OtmVEeuUvIptb1Coyg"
 PK_CLIENT_VERSION = "1.47.1"
@@ -26,7 +20,7 @@ def main():
     print("  PikPak Refresh Token 获取工具")
     print("=" * 40)
 
-    username = ask("账号（邮箱）: ")
+    username = input("账号（邮箱）: ").strip()
     password = getpass.getpass("密码: ")
 
     if not username or not password:
