@@ -17,7 +17,6 @@ PK_CLIENT_VERSION = "1.47.1"
 PK_PACKAGE = "com.pikcloud.pikpak"
 PK_USER_HOST = "https://user.mypikpak.com"
 
-# captcha_sign 盐值（来自官方 Android 客户端）
 PK_SALTS = [
     "Gez0T9ijiI9WCeTsKSg3SMlx",
     "zQdbalsolyb1R/",
@@ -44,76 +43,52 @@ def _captcha_sign(device_id: str, ts_ms: str) -> str:
     return f"1.{s}"
 
 
-def captcha_init(device_id: str, action: str = "POST:/v1/auth/signin") -> str:
-    """初始化验证码挑战，返回 captcha_token。"""
-    ts = str(int(time.time() * 1000))
-    meta = {
-        "captcha_sign": _captcha_sign(device_id, ts),
-        "client_version": PK_CLIENT_VERSION,
-        "package_name": PK_PACKAGE,
-        "timestamp": ts,
-    }
-    data = urllib.parse.urlencode({
-        "client_id": PK_CLIENT_ID,
-        "action": action,
-        "device_id": device_id,
-        "meta": json.dumps(meta),
-    }).encode()
-
-    req = urllib.request.Request(
-        f"{PK_USER_HOST}/v1/shield/captcha/init",
-        data=data,
-        headers={
-            "User-Agent": f"ANDROID-{PK_PACKAGE}/{PK_CLIENT_VERSION}",
-            "Content-Type": "application/x-www-form-urlencoded",
-        },
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            j = json.loads(resp.read())
-            return j.get("captcha_token", "")
-    except Exception as e:
-        print(f"captcha_init 失败（忽略）: {e}")
-        return ""
-
-
-def do_login(username, password, device_id, captcha_token):
-    data = urllib.parse.urlencode({
-        "client_id": PK_CLIENT_ID,
-        "client_secret": PK_CLIENT_SECRET,
-        "grant_type": "password",
-        "username": username,
-        "password": password,
-    }).encode()
-
+def http_post(url, data_dict, extra_headers=None):
+    """POST form-urlencoded，返回 (json_dict, error_str)"""
+    body = urllib.parse.urlencode(data_dict).encode()
     headers = {
         "User-Agent": f"ANDROID-{PK_PACKAGE}/{PK_CLIENT_VERSION}",
         "Content-Type": "application/x-www-form-urlencoded",
-        "X-Device-Id": device_id,
     }
-    if captcha_token:
-        headers["X-Captcha-Token"] = captcha_token
-
-    req = urllib.request.Request(
-        f"{PK_USER_HOST}/v1/auth/signin",
-        data=data,
-        headers=headers,
-        method="POST",
-    )
-
+    if extra_headers:
+        headers.update(extra_headers)
+    req = urllib.request.Request(url, data=body, headers=headers, method="POST")
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
             return json.loads(resp.read()), None
     except urllib.error.HTTPError as e:
-        body = e.read().decode()
+        raw = e.read().decode()
         try:
-            err = json.loads(body)
-            return None, err.get("error_description", err.get("error", f"HTTP {e.code}"))
+            return json.loads(raw), f"HTTP {e.code}: {raw[:300]}"
         except Exception:
-            return None, f"HTTP {e.code}: {body[:200]}"
+            return None, f"HTTP {e.code}: {raw[:300]}"
     except Exception as e:
         return None, str(e)
+
+
+def captcha_init(device_id: str, action: str) -> str:
+    ts = str(int(time.time() * 1000))
+    meta_str = json.dumps({
+        "captcha_sign": _captcha_sign(device_id, ts),
+        "client_version": PK_CLIENT_VERSION,
+        "package_name": PK_PACKAGE,
+        "timestamp": ts,
+    })
+    j, err = http_post(f"{PK_USER_HOST}/v1/shield/captcha/init", {
+        "client_id": PK_CLIENT_ID,
+        "action": action,
+        "device_id": device_id,
+        "meta": meta_str,
+    })
+    if err:
+        print(f"  [debug] captcha_init 失败: {err}")
+        return ""
+    token = j.get("captcha_token", "")
+    if token:
+        print(f"  [debug] captcha_token 获取成功: {token[:20]}...")
+    else:
+        print(f"  [debug] captcha_init 响应: {json.dumps(j, ensure_ascii=False)[:200]}")
+    return token
 
 
 def main():
@@ -121,7 +96,6 @@ def main():
     print("  PikPak Refresh Token 获取工具")
     print("=" * 40)
 
-    # 每个会话生成一个随机 device_id
     device_id = hashlib.md5(uuid.uuid4().hex.encode()).hexdigest()[:32]
 
     while True:
@@ -135,9 +109,19 @@ def main():
         print("登录中...")
 
         # 先初始化 captcha
-        captcha_token = captcha_init(device_id)
+        captcha_token = captcha_init(device_id, "POST:/v1/auth/signin")
 
-        j, err = do_login(username, password, device_id, captcha_token)
+        headers = {"X-Device-Id": device_id}
+        if captcha_token:
+            headers["X-Captcha-Token"] = captcha_token
+
+        j, err = http_post(f"{PK_USER_HOST}/v1/auth/signin", {
+            "client_id": PK_CLIENT_ID,
+            "client_secret": PK_CLIENT_SECRET,
+            "grant_type": "password",
+            "username": username,
+            "password": password,
+        }, extra_headers=headers)
 
         if err:
             print(f"登录失败: {err}")
@@ -146,6 +130,7 @@ def main():
 
         if "error" in j:
             print(f"登录失败: {j.get('error_description', j['error'])}")
+            print(f"  [debug] 完整响应: {json.dumps(j, ensure_ascii=False)[:300]}")
             print("请重新输入\n")
             continue
 
